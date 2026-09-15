@@ -17,10 +17,14 @@ Es la misma estructura que el catalogo "Euromaglia Home" que arma AdTribes.
 
 Dos conjuntos de productos en Meta, filtrados por custom_label_0:
     inodoros -> marco con "Instalacion oficial en CABA y GBA"
-    resto    -> marco con "Envio gratis", o sin pildora si el producto no
-                tiene la etiqueta ENVIO GRATIS en la tienda (revestimiento y el
-                Operador EVO, a septiembre 2026)
+    resto    -> marco con "Envio gratis"
 La instalacion es solo de inodoros: Nacho Minuto, 14/09/2026.
+
+EXCLUIDOS del catalogo por decision de Alvaro (15/09/2026): alfombras, pasto
+sintetico (categoria revestimiento) y el Operador EVO. En una foto no se ven
+atractivos y ademas no tienen envio gratis. Si aparece un producto nuevo sin la
+etiqueta ENVIO GRATIS, NO entra al feed y se avisa en el log: el marco promete
+envio gratis y no puede mentir.
 
 Idempotente: el nombre del archivo es el hash de URL de la foto + marco. Si
 cambia la foto o el marco que le toca, se hornea de nuevo.
@@ -37,8 +41,9 @@ BASE_IMG = "https://scalelabs-ar.github.io/euromaglia-catalogo-img/img/"
 DIR      = os.path.dirname(os.path.abspath(__file__))
 IMGS     = os.path.join(DIR, "img")
 MARCOS   = {"inodoros": "marco_inodoros.png",
-            "envio_gratis": "marco_envio_gratis.png",
-            "sin_pildora": "marco_sin_pildora.png"}
+            "envio_gratis": "marco_envio_gratis.png"}
+EXCLUIR_CATEGORIAS = {"revestimiento"}
+EXCLUIR_NOMBRE = re.compile(r"alfombra|pasto sint|operador evo", re.I)
 # El feed de AdTribes manda utm_source=Google Shopping y el trafico de Meta
 # aparece como Google en GA4. Este no.
 UTM      = "utm_source=facebook&utm_medium=paid_social&utm_campaign=catalogo_brandeado"
@@ -107,20 +112,22 @@ def main():
         # levanta vacio a la hora siguiente.
         sys.exit("ERROR: la tienda no devolvio productos — no se toca el feed.")
 
-    filas = []
+    filas, excluidas = [], 0
     for v in variaciones:
         p = padres.get(v["parent"])
         if not p:
             continue
         slugs = [c["slug"] for c in p["categories"]]
         tags  = {t["name"].upper() for t in p.get("tags", [])}
+        if EXCLUIR_CATEGORIAS & set(slugs) or EXCLUIR_NOMBRE.search(html.unescape(p["name"])):
+            excluidas += 1
+            continue
         conjunto = "inodoros" if "inodoros" in slugs else "resto"
-        if conjunto == "inodoros":
-            marco = "inodoros"
-        elif "ENVÍO GRATIS" in tags:
-            marco = "envio_gratis"
-        else:
-            marco = "sin_pildora"
+        if conjunto == "resto" and "ENVÍO GRATIS" not in tags:
+            print(f"  OJO: sin etiqueta ENVIO GRATIS, queda afuera — {p['id']} {p['name'][:60]}")
+            excluidas += 1
+            continue
+        marco = "inodoros" if conjunto == "inodoros" else "envio_gratis"
 
         foto = (v.get("images") or p.get("images") or [{}])[0].get("src")
         if not foto:
@@ -189,7 +196,7 @@ def main():
 
     from collections import Counter
     print(f"-> feed_brandeado.csv: {len(filas)} variaciones | "
-          f"{sum(f['availability'] == 'out of stock' for f in filas)} sin stock | {sin_marco} sin marco")
+          f"{sum(f['availability'] == 'out of stock' for f in filas)} sin stock | {sin_marco} sin marco | {excluidas} excluidas")
     print("   conjuntos:", dict(Counter(f["custom_label_0"] for f in filas)),
           "| marcos:", dict(Counter(f["custom_label_1"] for f in filas)))
 
