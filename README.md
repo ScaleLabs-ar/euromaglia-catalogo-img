@@ -29,3 +29,10 @@ en `content_ids` con `content_type=product_group`, que Meta cruza contra `item_g
 
 Los links llevan `utm_source=facebook&utm_medium=paid_social&utm_campaign=catalogo_brandeado`
 (el feed viejo de AdTribes mandaba `utm_source=Google Shopping`).
+
+## Sello de descuento
+
+Si la variante tiene precio de oferta menor al regular (Store API), la foto lleva una píldora
+bronce "-20% OFF" arriba a la izquierda. El porcentaje se calcula en cada corrida y es parte del
+hash del archivo: si la tienda cambia o saca la oferta, la foto se rehornea sola. Menos de 5% no
+se muestra. Tipografía: `InstrumentSans.ttf` (Google Fonts, OFL).

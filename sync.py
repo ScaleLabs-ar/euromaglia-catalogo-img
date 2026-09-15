@@ -33,6 +33,8 @@ import csv, hashlib, html, io, json, os, random, re, sys, time, urllib.error, ur
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 
+from PIL import ImageDraw, ImageFont
+
 from hornear import UA, hornear
 
 TIENDA   = "https://euromaglia.com.ar"
@@ -48,6 +50,33 @@ EXCLUIR_NOMBRE = re.compile(r"alfombra|pasto sint|operador evo", re.I)
 # aparece como Google en GA4. Este no.
 UTM      = "utm_source=facebook&utm_medium=paid_social&utm_campaign=catalogo_brandeado"
 HILOS, REINTENTOS = 3, 4
+
+# Sello de descuento. Sale de la Store API (precio regular vs precio actual), asi
+# que si la tienda cambia la oferta el sello cambia solo en la corrida siguiente:
+# el porcentaje es parte del nombre del archivo.
+DESCUENTO_MIN = 5            # por debajo de esto no se muestra
+BRONCE, CREMA = (143, 103, 57), (251, 248, 244)
+FUENTE = os.path.join(DIR, "InstrumentSans.ttf")
+
+
+def sello(img, pct, esc=3):
+    """Pildora "-20% OFF" arriba a la izquierda, espejando "Tienda oficial".
+
+    Se dibuja a 3x y se reduce: PIL no suaviza bordes de formas."""
+    f = ImageFont.truetype(FUENTE, 40 * esc)
+    f.set_variation_by_axes([100, 700])
+    texto = f"-{pct}% OFF"
+    x0, y0, x1, y1 = f.getbbox(texto)
+    pad_x, pad_y = 26 * esc, 14 * esc
+    w, h = (x1 - x0) + 2 * pad_x, (y1 - y0) + 2 * pad_y
+    capa = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(capa)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), radius=h // 2, fill=BRONCE + (255,))
+    d.text((pad_x - x0, pad_y - y0), texto, font=f, fill=CREMA + (255,))
+    capa = capa.resize((w // esc, h // esc), Image.LANCZOS)
+    out = img.convert("RGBA")
+    out.alpha_composite(capa, (32, 176))
+    return out.convert("RGB")
 
 
 def bajar(url, binario=False):
@@ -82,18 +111,22 @@ def limpiar(t, limite):
     return t[: limite - 1] + "…" if len(t) > limite else t
 
 
-def slug(url, marco):
-    return hashlib.sha1(f"{url}|{marco}".encode()).hexdigest()[:16]
+def slug(url, marco, pct=0):
+    clave = f"{url}|{marco}" + (f"|{pct}" if pct else "")
+    return hashlib.sha1(clave.encode()).hexdigest()[:16]
 
 
 def hornear_uno(trabajo, marcos):
-    url, marco = trabajo
-    destino = os.path.join(IMGS, slug(url, marco) + ".jpg")
+    url, marco, pct = trabajo
+    destino = os.path.join(IMGS, slug(url, marco, pct) + ".jpg")
     if os.path.exists(destino):
         return "ya estaba"
     try:
         foto = Image.open(io.BytesIO(bajar(url, binario=True)))
-        hornear(foto, marcos[marco]).save(destino, quality=92, subsampling=0, optimize=True)
+        img = hornear(foto, marcos[marco])
+        if pct:
+            img = sello(img, pct)
+        img.save(destino, quality=92, subsampling=0, optimize=True)
         return "generada"
     except Exception as e:
         print("  ERROR", type(e).__name__, url)
@@ -165,17 +198,18 @@ def main():
             "custom_label_1": marco,
             "_foto": foto,
             "_marco": marco,
+            "_pct": (lambda d: d if d >= DESCUENTO_MIN else 0)(round((1 - actual / regular) * 100)) if regular else 0,
         })
 
-    trabajos = sorted({(f["_foto"], f["_marco"]) for f in filas})
+    trabajos = sorted({(f["_foto"], f["_marco"], f["_pct"]) for f in filas})
     res = list(ThreadPoolExecutor(HILOS).map(lambda t: hornear_uno(t, marcos), trabajos))
     print(f"fotos: {len(trabajos)} | generadas: {res.count('generada')} | "
           f"ya estaban: {res.count('ya estaba')} | errores: {res.count('error')}")
 
     sin_marco = 0
     for f in filas:
-        foto, marco = f.pop("_foto"), f.pop("_marco")
-        archivo = slug(foto, marco) + ".jpg"
+        foto, marco, pct = f.pop("_foto"), f.pop("_marco"), f.pop("_pct")
+        archivo = slug(foto, marco, pct) + ".jpg"
         if os.path.exists(os.path.join(IMGS, archivo)):
             f["image_link"] = BASE_IMG + archivo
         else:
