@@ -18,7 +18,7 @@ Todo se regenera solo cada hora con la Action `sync.yml` (al :10); Meta lee el f
 |---|---|---|
 | `marco_inodoros.png` | Instalación oficial en CABA y GBA | categoría `inodoros` |
 | `marco_envio_gratis.png` | Envío gratis | resto, con etiqueta ENVÍO GRATIS en la tienda |
-| `marco_sin_pildora.png` | — | resto sin esa etiqueta (revestimiento y Operador EVO) |
+Excluidos del feed: alfombras, pasto sintético y Operador EVO (decisión 15/09/2026).
 
 La instalación es solo de inodoros (Nacho Minuto, 14/09/2026). `custom_label_1` dice qué marco llevó cada fila.
 
