@@ -84,7 +84,13 @@ def bajar(url, binario=False):
     for intento in range(REINTENTOS):
         try:
             d = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=90).read()
-            return d if binario else json.loads(d)
+            if binario:
+                return d
+            # La tienda a veces contesta 200 con HTML (mantenimiento, WAF). Eso
+            # no es un caso de error: hay que reintentar, no abortar la corrida.
+            return json.loads(d)
+        except json.JSONDecodeError as e:
+            ultimo = RuntimeError(f"la tienda devolvio algo que no es JSON: {d[:120]!r}")
         except urllib.error.HTTPError as e:
             ultimo = e
             if e.code == 404:
