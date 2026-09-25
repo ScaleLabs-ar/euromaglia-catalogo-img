@@ -15,10 +15,15 @@ con content_type=product_group, asi que:
     item_group_id = id del padre
 Es la misma estructura que el catalogo "Euromaglia Home" que arma AdTribes.
 
-Dos conjuntos de productos en Meta, filtrados por custom_label_0:
+Tres conjuntos de productos en Meta, filtrados por custom_label_0:
     inodoros -> marco con "Instalacion oficial en CABA y GBA"
+    exterior -> marco con "Envio en el dia"   (categoria muebles)
     resto    -> marco con "Envio gratis"
 La instalacion es solo de inodoros: Nacho Minuto, 14/09/2026.
+
+Los muebles de exterior salen de "resto" y arman conjunto propio (25/09/2026):
+mezclados con sanitarios no se podian comunicar, y el argumento que mas tracciona
+en esa linea es el plazo de entrega, no el envio gratis (Nacho Minuto).
 
 EXCLUIDOS del catalogo por decision de Alvaro (15/09/2026): alfombras, pasto
 sintetico (categoria revestimiento) y el Operador EVO. En una foto no se ven
@@ -43,7 +48,11 @@ BASE_IMG = "https://scalelabs-ar.github.io/euromaglia-catalogo-img/img/"
 DIR      = os.path.dirname(os.path.abspath(__file__))
 IMGS     = os.path.join(DIR, "img")
 MARCOS   = {"inodoros": "marco_inodoros.png",
-            "envio_gratis": "marco_envio_gratis.png"}
+            "envio_gratis": "marco_envio_gratis.png",
+            "envio_dia": "marco_envio_dia.png"}
+# Que conjunto arma cada categoria de la tienda. Lo que no figura cae en "resto".
+CONJUNTO_POR_SLUG = {"inodoros": "inodoros", "muebles": "exterior"}
+MARCO_POR_CONJUNTO = {"inodoros": "inodoros", "exterior": "envio_dia", "resto": "envio_gratis"}
 EXCLUIR_CATEGORIAS = {"revestimiento"}
 EXCLUIR_NOMBRE = re.compile(r"alfombra|pasto sint|operador evo", re.I)
 # El feed de AdTribes manda utm_source=Google Shopping y el trafico de Meta
@@ -161,12 +170,14 @@ def main():
         if EXCLUIR_CATEGORIAS & set(slugs) or EXCLUIR_NOMBRE.search(html.unescape(p["name"])):
             excluidas += 1
             continue
-        conjunto = "inodoros" if "inodoros" in slugs else "resto"
+        conjunto = next((CONJUNTO_POR_SLUG[s] for s in slugs if s in CONJUNTO_POR_SLUG), "resto")
+        # El guardia vale solo para "resto": es el unico marco que promete envio
+        # gratis, y no puede mentir. El de exterior promete plazo, no precio.
         if conjunto == "resto" and "ENVÍO GRATIS" not in tags:
             print(f"  OJO: sin etiqueta ENVIO GRATIS, queda afuera — {p['id']} {p['name'][:60]}")
             excluidas += 1
             continue
-        marco = "inodoros" if conjunto == "inodoros" else "envio_gratis"
+        marco = MARCO_POR_CONJUNTO[conjunto]
 
         foto = (v.get("images") or p.get("images") or [{}])[0].get("src")
         if not foto:
