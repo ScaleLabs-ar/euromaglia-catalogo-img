@@ -10,7 +10,7 @@ Todo se regenera solo cada hora con la Action `sync.yml` (al :10); Meta lee el f
 | Fuente de datos | `2293023584829771`, horaria al :20 (Buenos Aires) |
 | Píxel conectado | `630213701304113` |
 | Conjunto inodoros | `4856253231263300` — `custom_label_0 = inodoros` |
-| Conjunto exterior | PENDIENTE DE CREAR — `custom_label_0 = exterior` |
+| Conjunto exterior | `1411161431102883` — `custom_label_0 = exterior` |
 | Conjunto resto | `1047925054671119` — `custom_label_0 = resto` |
 
 ## Tres marcos
@@ -33,6 +33,27 @@ píldora vieja.
 Excluidos del feed: alfombras, pasto sintético y Operador EVO (decisión 15/09/2026).
 
 La instalación es solo de inodoros (Nacho Minuto, 14/09/2026). `custom_label_1` dice qué marco llevó cada fila.
+
+## Las tres etiquetas
+
+| Etiqueta | Qué lleva | Para qué |
+|---|---|---|
+| `custom_label_0` | conjunto: `inodoros` / `exterior` / `resto` | lo que filtran los conjuntos que ya están al aire |
+| `custom_label_1` | categoría de la tienda: `duchas`, `griferias`, `baneras`, `bachas`, `muebles`, `inodoros`, `hidromasajes`, `automatismos` | abrir una línea nueva = crear un conjunto, sin tocar este repo |
+| `custom_label_2` | marco que llevó la foto | diagnóstico |
+
+`custom_label_0` **no** se abre por categoría a propósito: los conjuntos que hoy entregan filtran
+por sus tres valores y cambiarlos los vaciaría.
+
+### La categoría no se lee del producto
+
+El campo `categories` que la Store API devuelve dentro de cada producto **no es confiable**: las 8
+bachas lo traen vacío aunque estén en la categoría. Filtrar por `?category=<slug>` sí las devuelve,
+y el total coincide con el contador del término en las 9 categorías (verificado 25/09/2026). Por eso
+`mapa_categorias()` arma el índice leyendo categoría por categoría.
+
+No es sólo la etiqueta: de esos slugs salen también el conjunto, el marco y la exclusión de
+revestimiento. Con el campo del producto, un revestimiento podría colarse sin que nadie lo vea.
 
 ## IDs
 

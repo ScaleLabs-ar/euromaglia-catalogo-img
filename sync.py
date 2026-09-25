@@ -25,6 +25,15 @@ Los muebles de exterior salen de "resto" y arman conjunto propio (25/09/2026):
 mezclados con sanitarios no se podian comunicar, y el argumento que mas tracciona
 en esa linea es el plazo de entrega, no el envio gratis (Nacho Minuto).
 
+Las tres etiquetas, y por que estan separadas asi:
+    custom_label_0 = conjunto   (inodoros / exterior / resto) -> lo que filtran
+                                 los conjuntos que ya existen en Meta
+    custom_label_1 = categoria  (slug de la tienda: duchas, griferias, baneras...)
+    custom_label_2 = marco      (diagnostico: que marco llevo la foto)
+custom_label_0 NO se abre por categoria a proposito: los conjuntos de Meta que hoy
+estan al aire filtran por sus tres valores y cambiarlos los vaciaria. Para abrir una
+linea nueva se crea un conjunto sobre custom_label_1 y no se toca este archivo.
+
 EXCLUIDOS del catalogo por decision de Alvaro (15/09/2026): alfombras, pasto
 sintetico (categoria revestimiento) y el Operador EVO. En una foto no se ven
 atractivos y ademas no tienen envio gratis. Si aparece un producto nuevo sin la
@@ -110,6 +119,28 @@ def bajar(url, binario=False):
     raise ultimo
 
 
+def mapa_categorias():
+    """id de producto -> [(slug, nombre)], leido por categoria y no por producto.
+
+    El campo `categories` que la Store API devuelve DENTRO de cada producto no es
+    confiable: las 8 bachas lo traen vacio aunque esten en la categoria. Filtrar
+    por `?category=<slug>` si las devuelve, y el total coincide con el contador
+    del termino en las 9 categorias. Verificado el 25/09/2026.
+
+    Importa mas alla de la etiqueta: de estos slugs salen tambien el conjunto, el
+    marco y la exclusion de revestimiento. Con el campo del producto, una bacha
+    de revestimiento se habria colado sin que nadie lo viera.
+    """
+    cats = [c for c in bajar(API + "/categories?per_page=100")
+            if c["slug"] != "todos-los-productos"]
+    m = {}
+    for c in cats:
+        for prod in bajar(f"{API}?category={c['slug']}&per_page=100"):
+            m.setdefault(prod["id"], []).append((c["slug"], c["name"]))
+    print(f"categorias: {len(cats)} | productos categorizados: {len(m)}")
+    return m
+
+
 def todos(extra=""):
     """Pagina hasta que una pagina venga con menos de 100."""
     items, pagina = [], 1
@@ -152,6 +183,7 @@ def main():
     os.makedirs(IMGS, exist_ok=True)
     marcos = {k: Image.open(os.path.join(DIR, v)).convert("RGBA") for k, v in MARCOS.items()}
 
+    cats_por_id = mapa_categorias()
     padres = {p["id"]: p for p in todos()}
     variaciones = todos("&type=variation")
     print(f"productos: {len(padres)} | variaciones: {len(variaciones)}")
@@ -165,7 +197,8 @@ def main():
         p = padres.get(v["parent"])
         if not p:
             continue
-        slugs = [c["slug"] for c in p["categories"]]
+        propias = cats_por_id.get(p["id"], [])
+        slugs = [c for c, _ in propias]
         tags  = {t["name"].upper() for t in p.get("tags", [])}
         if EXCLUIR_CATEGORIAS & set(slugs) or EXCLUIR_NOMBRE.search(html.unescape(p["name"])):
             excluidas += 1
@@ -179,6 +212,14 @@ def main():
             continue
         marco = MARCO_POR_CONJUNTO[conjunto]
 
+        # La categoria va etiquetada en todas las filas aunque hoy nadie la use:
+        # abrir una linea en el futuro tiene que ser crear un conjunto, no volver
+        # a tocar el feed y esperar una hora.
+        categoria = slugs[0] if slugs else ""
+        if not categoria:
+            print(f"  SIN CATEGORIA en la tienda, queda sin etiquetar — {p['id']} {p['name'][:60]}")
+            categoria = "sin-categoria"
+
         foto = (v.get("images") or p.get("images") or [{}])[0].get("src")
         if not foto:
             continue
@@ -188,7 +229,7 @@ def main():
         regular = int(pr["regular_price"] or pr["price"]) / esc
         actual  = int(pr["price"]) / esc
 
-        cats = [c["name"] for c in p["categories"] if c["slug"] != "todos-los-productos"]
+        cats = [n for _, n in propias]
         marca = next((t["name"] for a in p.get("attributes", []) if a.get("taxonomy") == "pa_marca"
                       for t in a["terms"]), "Euromaglia")
         nombre = html.unescape(p["name"])
@@ -212,7 +253,8 @@ def main():
             "brand": marca,
             "product_type": "Home > " + (cats[0] if cats else "Todos los productos"),
             "custom_label_0": conjunto,
-            "custom_label_1": marco,
+            "custom_label_1": categoria,
+            "custom_label_2": marco,
             "_foto": foto,
             "_marco": marco,
             "_pct": (lambda d: d if d >= DESCUENTO_MIN else 0)(round((1 - actual / regular) * 100)) if regular else 0,
@@ -249,7 +291,8 @@ def main():
     print(f"-> feed_brandeado.csv: {len(filas)} variaciones | "
           f"{sum(f['availability'] == 'out of stock' for f in filas)} sin stock | {sin_marco} sin marco | {excluidas} excluidas")
     print("   conjuntos:", dict(Counter(f["custom_label_0"] for f in filas)),
-          "| marcos:", dict(Counter(f["custom_label_1"] for f in filas)))
+          "| marcos:", dict(Counter(f["custom_label_2"] for f in filas)))
+    print("   categorias:", dict(Counter(f["custom_label_1"] for f in filas)))
 
 
 if __name__ == "__main__":
