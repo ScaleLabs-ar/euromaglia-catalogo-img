@@ -41,10 +41,20 @@ Las tres etiquetas, y por que estan separadas asi:
                                  los conjuntos que ya existen en Meta
     custom_label_1 = categoria  (slug de la tienda: duchas, griferias, baneras...)
     custom_label_2 = marco      (diagnostico: que marco llevo la foto)
-En "diamadre", donde no hay marco, los tres ultimos campos los lee la plantilla:
+En "diamadre", donde no hay marco, los cuatro ultimos campos los lee la plantilla:
+    custom_label_1 = el precio     ("$ 1.575.000")
     custom_label_2 = que compras   ("Inodoro inteligente TA06")
     custom_label_3 = que te llevas ("+ Bacha de regalo")
-    custom_label_4 = el ahorro     ("Ahorras $ 380.000")
+    custom_label_4 = el apoyo      ("antes $ 1.955.000  ·  ahorras $ 380.000")
+
+El precio va por custom_label porque el campo Precio de Meta se imprime
+"$1.575.000,00" y los decimales no se pueden sacar: a 74 px son casi cien
+pixeles de mas y el numero se sale de su caja. Por lo mismo el tachado dejo de
+ser una capa propia y viaja dentro del apoyo, sin decimales.
+
+En diamadre custom_label_1 pierde la categoria. No importa: la categoria solo
+sirve para abrir conjuntos nuevos, y este conjunto ya existe y filtra por
+custom_label_0.
 custom_label_0 NO se abre por categoria a proposito: los conjuntos de Meta que hoy
 estan al aire filtran por sus tres valores y cambiarlos los vaciaria. Para abrir una
 linea nueva se crea un conjunto sobre custom_label_1 y no se toca este archivo.
@@ -296,11 +306,13 @@ def main():
             "brand": marca,
             "product_type": "Home > " + (cats[0] if cats else "Todos los productos"),
             "custom_label_0": conjunto,
-            "custom_label_1": categoria,
-            # En diamadre no hay marco: los tres campos los lee la plantilla.
+            "custom_label_1": (f"$ {actual:,.0f}".replace(",", ".")
+                               if conjunto == "diamadre" else categoria),
+            # En diamadre no hay marco: estos campos los lee la plantilla.
             "custom_label_2": prod_combo or marco,
             "custom_label_3": regalo_combo,
-            "custom_label_4": (f"Ahorr\u00e1s $ {regular - actual:,.0f}".replace(",", ".")
+            "custom_label_4": ((f"antes $ {regular:,.0f}   \u00b7   "
+                                f"ahorr\u00e1s $ {regular - actual:,.0f}").replace(",", ".")
                                if conjunto == "diamadre" and actual < regular else ""),
             "_foto": foto,
             "_marco": marco,
