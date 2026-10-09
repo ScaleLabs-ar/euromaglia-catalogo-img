@@ -64,7 +64,7 @@ from PIL import Image
 
 from PIL import ImageDraw, ImageFont
 
-from hornear import UA, hornear
+from hornear import UA, hornear, cubrir, extender, LIENZO
 
 TIENDA   = "https://euromaglia.com.ar"
 API      = TIENDA + "/wp-json/wc/store/v1/products"
@@ -198,7 +198,10 @@ def hornear_uno(trabajo, marcos):
         return "ya estaba"
     try:
         foto = Image.open(io.BytesIO(bajar(url, binario=True)))
-        img = hornear(foto, marcos[marco])
+        # Sin marco la foto se copia al lienzo tal cual: mismo tamano que el
+        # resto del catalogo, y servida desde el mismo lugar.
+        img = (hornear(foto, marcos[marco]) if marco
+               else extender(cubrir(foto.convert("RGB")), LIENZO, LIENZO))
         if pct:
             img = sello(img, pct)
         img.save(destino, quality=92, subsampling=0, optimize=True)
@@ -301,10 +304,14 @@ def main():
                                if conjunto == "diamadre" and actual < regular else ""),
             "_foto": foto,
             "_marco": marco,
-            "_pct": (lambda d: d if d >= DESCUENTO_MIN else 0)(round((1 - actual / regular) * 100)) if regular else 0,
+            # En diamadre el ahorro lo escribe la plantilla: horneale ademas el
+            # sello seria decir dos veces lo mismo, y con dos tipografias.
+            "_pct": 0 if conjunto == "diamadre" else
+                    ((lambda d: d if d >= DESCUENTO_MIN else 0)(round((1 - actual / regular) * 100))
+                     if regular else 0),
         })
 
-    trabajos = sorted({(f["_foto"], f["_marco"], f["_pct"]) for f in filas if f["_marco"]})
+    trabajos = sorted({(f["_foto"], f["_marco"], f["_pct"]) for f in filas})
     res = list(ThreadPoolExecutor(HILOS).map(lambda t: hornear_uno(t, marcos), trabajos))
     print(f"fotos: {len(trabajos)} | generadas: {res.count('generada')} | "
           f"ya estaban: {res.count('ya estaba')} | errores: {res.count('error')}")
@@ -312,9 +319,6 @@ def main():
     sin_marco = 0
     for f in filas:
         foto, marco, pct = f.pop("_foto"), f.pop("_marco"), f.pop("_pct")
-        if not marco:                       # la plantilla de Meta hace el arte
-            f["image_link"] = foto
-            continue
         archivo = slug(foto, marco, pct) + ".jpg"
         if os.path.exists(os.path.join(IMGS, archivo)):
             f["image_link"] = BASE_IMG + archivo
