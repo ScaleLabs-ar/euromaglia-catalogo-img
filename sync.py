@@ -9,7 +9,11 @@ Que hace, en orden:
   2. Hornea el marco que le toca a cada foto que todavia no esta en img/.
   3. Escribe feed_brandeado.csv.
 
-Una fila por VARIACION. El pixel (PixelYourSite) manda el id del producto padre
+Una fila por VARIACION, y una por producto SIMPLE: los combos de campania no
+tienen variaciones y si se recorren solo las variaciones quedan invisibles para
+el feed. En un simple el id y el item_group_id son el mismo numero.
+
+El pixel (PixelYourSite) manda el id del producto padre
 con content_type=product_group, asi que:
     id            = id de la variacion
     item_group_id = id del padre
@@ -19,7 +23,14 @@ Tres conjuntos de productos en Meta, filtrados por custom_label_0:
     inodoros -> marco con "Instalacion oficial en CABA y GBA"
     exterior -> marco con "Envio en el dia"   (categoria muebles)
     resto    -> marco con "Envio gratis"
+    diamadre -> SIN marco horneado: lo dibuja la plantilla de imagen de Meta
 La instalacion es solo de inodoros: Nacho Minuto, 14/09/2026.
+
+El conjunto "diamadre" va por el otro camino (09/10/2026). La plantilla de
+imagen de Meta arma el arte sola, en 1:1, 4:5 y 9:16, leyendo campos del
+catalogo. Por eso estas fotos van CRUDAS: si ademas se hornea el marco, en el
+anuncio se ve marco sobre marco. Y como no hay marco que elegir, custom_label_2
+queda libre y se usa para el titular.
 
 Los muebles de exterior salen de "resto" y arman conjunto propio (25/09/2026):
 mezclados con sanitarios no se podian comunicar, y el argumento que mas tracciona
@@ -30,6 +41,10 @@ Las tres etiquetas, y por que estan separadas asi:
                                  los conjuntos que ya existen en Meta
     custom_label_1 = categoria  (slug de la tienda: duchas, griferias, baneras...)
     custom_label_2 = marco      (diagnostico: que marco llevo la foto)
+En "diamadre", donde no hay marco, los tres ultimos campos los lee la plantilla:
+    custom_label_2 = que compras   ("Inodoro inteligente TA06")
+    custom_label_3 = que te llevas ("+ Bacha de regalo")
+    custom_label_4 = el ahorro     ("Ahorras $ 380.000")
 custom_label_0 NO se abre por categoria a proposito: los conjuntos de Meta que hoy
 estan al aire filtran por sus tres valores y cambiarlos los vaciaria. Para abrir una
 linea nueva se crea un conjunto sobre custom_label_1 y no se toca este archivo.
@@ -60,8 +75,22 @@ MARCOS   = {"inodoros": "marco_inodoros.png",
             "envio_gratis": "marco_envio_gratis.png",
             "envio_dia": "marco_envio_dia.png"}
 # Que conjunto arma cada categoria de la tienda. Lo que no figura cae en "resto".
-CONJUNTO_POR_SLUG = {"inodoros": "inodoros", "muebles": "exterior"}
-MARCO_POR_CONJUNTO = {"inodoros": "inodoros", "exterior": "envio_dia", "resto": "envio_gratis"}
+# El orden manda: un producto que este en dos categorias se queda con el primer
+# conjunto de esta lista, no con el primero que devuelva la tienda.
+CONJUNTO_POR_SLUG = {"dia-de-la-madre": "diamadre", "inodoros": "inodoros", "muebles": "exterior"}
+# Sin marco = la plantilla de imagen de Meta hace el arte.
+MARCO_POR_CONJUNTO = {"inodoros": "inodoros", "exterior": "envio_dia",
+                      "resto": "envio_gratis", "diamadre": ""}
+
+# Titular de los combos, escrito a mano. Se podria partir el nombre del producto
+# por " + ", pero "Combo Completo Dia de la Madre: Inodoro TA06 + Ducha de Regalo
+# + Bacha" da tres pedazos y el titulo tiene dos lineas. Son tres productos de
+# campania: explicito y corregible en un minuto le gana a un parseo fragil.
+COMBOS = {
+    32978: ("Inodoro inteligente TA06", "+ Bacha de regalo"),
+    32981: ("Inodoro inteligente TA06", "+ Ducha y bacha de regalo"),
+    32975: ("Inodoro inteligente TA06", "+ Ducha de regalo"),
+}
 EXCLUIR_CATEGORIAS = {"revestimiento"}
 EXCLUIR_NOMBRE = re.compile(r"alfombra|pasto sint|operador evo", re.I)
 # El feed de AdTribes manda utm_source=Google Shopping y el trafico de Meta
@@ -192,9 +221,14 @@ def main():
         # levanta vacio a la hora siguiente.
         sys.exit("ERROR: la tienda no devolvio productos — no se toca el feed.")
 
+    # Los simples (los combos de campania) no aparecen en type=variation: se
+    # recorren aparte, y cada uno es su propia "variacion".
+    simples = [p for p in padres.values() if p.get("type") == "simple"]
+    print(f"simples: {len(simples)}")
+
     filas, excluidas = [], 0
-    for v in variaciones:
-        p = padres.get(v["parent"])
+    for v in variaciones + simples:
+        p = v if v.get("type") == "simple" else padres.get(v["parent"])
         if not p:
             continue
         propias = cats_por_id.get(p["id"], [])
@@ -203,7 +237,7 @@ def main():
         if EXCLUIR_CATEGORIAS & set(slugs) or EXCLUIR_NOMBRE.search(html.unescape(p["name"])):
             excluidas += 1
             continue
-        conjunto = next((CONJUNTO_POR_SLUG[s] for s in slugs if s in CONJUNTO_POR_SLUG), "resto")
+        conjunto = next((c for s, c in CONJUNTO_POR_SLUG.items() if s in slugs), "resto")
         # El guardia vale solo para "resto": es el unico marco que promete envio
         # gratis, y no puede mentir. El de exterior promete plazo, no precio.
         if conjunto == "resto" and "ENVÍO GRATIS" not in tags:
@@ -222,6 +256,12 @@ def main():
 
         foto = (v.get("images") or p.get("images") or [{}])[0].get("src")
         if not foto:
+            continue
+
+        prod_combo, regalo_combo = COMBOS.get(p["id"], ("", ""))
+        if conjunto == "diamadre" and not prod_combo:
+            print(f"  OJO: combo sin titular en COMBOS, queda afuera — {p['id']} {p['name'][:60]}")
+            excluidas += 1
             continue
 
         pr = v["prices"]
@@ -254,13 +294,17 @@ def main():
             "product_type": "Home > " + (cats[0] if cats else "Todos los productos"),
             "custom_label_0": conjunto,
             "custom_label_1": categoria,
-            "custom_label_2": marco,
+            # En diamadre no hay marco: los tres campos los lee la plantilla.
+            "custom_label_2": prod_combo or marco,
+            "custom_label_3": regalo_combo,
+            "custom_label_4": (f"Ahorr\u00e1s $ {regular - actual:,.0f}".replace(",", ".")
+                               if conjunto == "diamadre" and actual < regular else ""),
             "_foto": foto,
             "_marco": marco,
             "_pct": (lambda d: d if d >= DESCUENTO_MIN else 0)(round((1 - actual / regular) * 100)) if regular else 0,
         })
 
-    trabajos = sorted({(f["_foto"], f["_marco"], f["_pct"]) for f in filas})
+    trabajos = sorted({(f["_foto"], f["_marco"], f["_pct"]) for f in filas if f["_marco"]})
     res = list(ThreadPoolExecutor(HILOS).map(lambda t: hornear_uno(t, marcos), trabajos))
     print(f"fotos: {len(trabajos)} | generadas: {res.count('generada')} | "
           f"ya estaban: {res.count('ya estaba')} | errores: {res.count('error')}")
@@ -268,6 +312,9 @@ def main():
     sin_marco = 0
     for f in filas:
         foto, marco, pct = f.pop("_foto"), f.pop("_marco"), f.pop("_pct")
+        if not marco:                       # la plantilla de Meta hace el arte
+            f["image_link"] = foto
+            continue
         archivo = slug(foto, marco, pct) + ".jpg"
         if os.path.exists(os.path.join(IMGS, archivo)):
             f["image_link"] = BASE_IMG + archivo
@@ -276,7 +323,8 @@ def main():
             sin_marco += 1
 
     # Las fotos que ya no usa ningun producto se borran: el repo no crece solo.
-    usadas = {os.path.basename(f["image_link"]) for f in filas}
+    usadas = {os.path.basename(f["image_link"]) for f in filas
+              if f["image_link"].startswith(BASE_IMG)}
     for a in os.listdir(IMGS):
         if a.endswith(".jpg") and a not in usadas:
             os.remove(os.path.join(IMGS, a))
