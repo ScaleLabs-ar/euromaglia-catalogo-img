@@ -107,7 +107,7 @@ EXCLUIR_NOMBRE = re.compile(r"alfombra|pasto sint|operador evo", re.I)
 # El feed de AdTribes manda utm_source=Google Shopping y el trafico de Meta
 # aparece como Google en GA4. Este no.
 UTM      = "utm_source=facebook&utm_medium=paid_social&utm_campaign=catalogo_brandeado"
-HILOS, REINTENTOS = 3, 4
+HILOS, REINTENTOS = 3, 6
 
 # Sello de descuento. Sale de la Store API (precio regular vs precio actual), asi
 # que si la tienda cambia la oferta el sello cambia solo en la corrida siguiente:
@@ -147,8 +147,16 @@ def bajar(url, binario=False):
             # La tienda a veces contesta 200 con HTML (mantenimiento, WAF). Eso
             # no es un caso de error: hay que reintentar, no abortar la corrida.
             return json.loads(d)
-        except json.JSONDecodeError as e:
-            ultimo = RuntimeError(f"la tienda devolvio algo que no es JSON: {d[:120]!r}")
+        except json.JSONDecodeError:
+            # SiteGround mete un captcha (/.well-known/sgcaptcha/) cuando el
+            # runner de GitHub le pega seguido. Es temporal: con esperar mas
+            # vuelve solo, asi que no hay que abortar la corrida.
+            captcha = b"sgcaptcha" in d
+            ultimo = RuntimeError(
+                ("captcha de SiteGround" if captcha else "respuesta que no es JSON")
+                + f": {d[:100]!r}")
+            if captcha:
+                time.sleep(20 + random.uniform(0, 10))
         except urllib.error.HTTPError as e:
             ultimo = e
             if e.code == 404:
