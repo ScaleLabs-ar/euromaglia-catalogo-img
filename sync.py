@@ -69,7 +69,7 @@ envio gratis y no puede mentir.
 Idempotente: el nombre del archivo es el hash de URL de la foto + marco. Si
 cambia la foto o el marco que le toca, se hornea de nuevo.
 """
-import csv, hashlib, html, io, json, os, random, re, sys, time, urllib.error, urllib.parse, urllib.request
+import csv, datetime, hashlib, html, io, json, os, random, re, sys, time, urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 
@@ -84,7 +84,8 @@ DIR      = os.path.dirname(os.path.abspath(__file__))
 IMGS     = os.path.join(DIR, "img")
 MARCOS   = {"inodoros": "marco_inodoros.png",
             "envio_gratis": "marco_envio_gratis.png",
-            "envio_dia": "marco_envio_dia.png"}
+            "envio_dia": "marco_envio_dia.png",
+            "bf": "marco_bf.png"}
 # Que conjunto arma cada categoria de la tienda. Lo que no figura cae en "resto".
 # El orden manda: un producto que este en dos categorias se queda con el primer
 # conjunto de esta lista, no con el primero que devuelva la tienda.
@@ -108,6 +109,19 @@ EXCLUIR_NOMBRE = re.compile(r"alfombra|pasto sint|operador evo", re.I)
 # aparece como Google en GA4. Este no.
 UTM      = "utm_source=facebook&utm_medium=paid_social&utm_campaign=catalogo_brandeado"
 HILOS, REINTENTOS = 3, 6
+
+# --- Black Friday 2026 -------------------------------------------------------
+# Del 25/11 12:00 al 29/11 23:59, hora de Buenos Aires. Mismas fechas que el
+# snippet 36 del sitio. Pasada la ventana, esto se apaga solo y cada conjunto
+# vuelve a su marco de siempre: las fotos viejas siguen en img/, asi que no hay
+# que volver a hornear nada.
+BF_INICIO = datetime.datetime(2026, 11, 25, 12, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=-3)))
+BF_FIN    = datetime.datetime(2026, 11, 29, 23, 59, 59, tzinfo=datetime.timezone(datetime.timedelta(hours=-3)))
+
+
+def bf_vigente():
+    return BF_INICIO <= datetime.datetime.now(datetime.timezone.utc) <= BF_FIN
+
 
 # Sello de descuento. Sale de la Store API (precio regular vs precio actual), asi
 # que si la tienda cambia la oferta el sello cambia solo en la corrida siguiente:
@@ -233,6 +247,9 @@ def hornear_uno(trabajo, marcos):
 def main():
     os.makedirs(IMGS, exist_ok=True)
     marcos = {k: Image.open(os.path.join(DIR, v)).convert("RGBA") for k, v in MARCOS.items()}
+    bf = bf_vigente()
+    print("Black Friday:", "VIGENTE — marco unico para todo el catalogo" if bf
+          else f"fuera de ventana ({BF_INICIO:%d/%m %H:%M} a {BF_FIN:%d/%m %H:%M})")
 
     cats_por_id = mapa_categorias()
     padres = {p["id"]: p for p in todos()}
@@ -262,11 +279,18 @@ def main():
         conjunto = next((c for s, c in CONJUNTO_POR_SLUG.items() if s in slugs), "resto")
         # El guardia vale solo para "resto": es el unico marco que promete envio
         # gratis, y no puede mentir. El de exterior promete plazo, no precio.
-        if conjunto == "resto" and "ENVÍO GRATIS" not in tags:
+        # En Black Friday el marco es uno solo para todo el catalogo y SI promete
+        # envio gratis, asi que el guardia pasa a valer para los tres conjuntos.
+        # Hoy eso deja afuera los dos juegos de comedor de exterior que no tienen
+        # la etiqueta; los nueve inodoros la tienen todos.
+        exige_envio = conjunto == "resto" or (bf and conjunto in ("inodoros", "exterior"))
+        if exige_envio and "ENVÍO GRATIS" not in tags:
             print(f"  OJO: sin etiqueta ENVIO GRATIS, queda afuera — {p['id']} {p['name'][:60]}")
             excluidas += 1
             continue
-        marco = MARCO_POR_CONJUNTO[conjunto]
+        # En Black Friday los tres conjuntos comparten marco. "diamadre" sigue sin
+        # marco: ahi el arte lo dibuja la plantilla de imagen de Meta.
+        marco = "bf" if (bf and conjunto != "diamadre") else MARCO_POR_CONJUNTO[conjunto]
 
         # La categoria va etiquetada en todas las filas aunque hoy nadie la use:
         # abrir una linea en el futuro tiene que ser crear un conjunto, no volver
@@ -326,7 +350,10 @@ def main():
             "_marco": marco,
             # En diamadre el ahorro lo escribe la plantilla: horneale ademas el
             # sello seria decir dos veces lo mismo, y con dos tipografias.
-            "_pct": 0 if conjunto == "diamadre" else
+            # En BF el marco ya dice "25% OFF transferencia". El sello mide otra
+            # cosa (lista contra precio actual), y dos porcentajes distintos en la
+            # misma foto se leen como un error.
+            "_pct": 0 if (conjunto == "diamadre" or bf) else
                     ((lambda d: d if d >= DESCUENTO_MIN else 0)(round((1 - actual / regular) * 100))
                      if regular else 0),
         })
